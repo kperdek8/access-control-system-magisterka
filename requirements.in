@@ -1,0 +1,7 @@
+lark
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+pydot
+dotenv

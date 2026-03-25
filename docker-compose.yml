@@ -1,0 +1,65 @@
+services:
+  pep:
+    build:
+      context: ./PEP
+      dockerfile: Dockerfile
+    container_name: policy-enforcement-point
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8000:8000"
+    networks:
+      - public
+      - private
+    depends_on:
+      db:
+        condition: service_healthy
+  pdp:
+    build:
+      context: ./PDP
+      dockerfile: Dockerfile
+    container_name: policy-decision-point
+    volumes:
+      - ./logs:/app/logs
+      - ./policies:/app/policies:ro
+    ports:
+      - "8001:8000"
+    networks:
+      - private
+  pip:
+    build:
+      context: ./PIP
+      dockerfile: Dockerfile
+    container_name: policy-information-point
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8002:8000"
+    networks:
+      - private
+  db:
+    image: postgres:15-alpine
+    container_name: user-data-db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - private
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+volumes:
+  postgres_data:
+networks:
+  public:
+    driver: bridge
+  private:
+    driver: bridge
+    internal: false # Zmienic na true w wersji koncowej

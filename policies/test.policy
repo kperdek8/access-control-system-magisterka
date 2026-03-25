@@ -1,0 +1,8 @@
+RULE ALLOW IF environment.test == TRUE OR (user.role == accountant AND object.type == invoice)
+RULE ALLOW IF (environment.test == TRUE OR user.role == accountant) AND object.type == invoice
+RULE ALLOW IF environment.test == TRUE OR user.role == accountant AND object.type == invoice
+RULE ALLOW IF environment.test == TRUE AND user.role == accountant OR object.type == invoice
+DELEGATION {
+    test: true
+    other_test: 15
+}
