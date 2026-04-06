@@ -1,11 +1,12 @@
 services:
   pep:
     build:
-      context: ./PEP
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: PEP/Dockerfile
     container_name: policy-enforcement-point
     environment:
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
+      - PDP_URL=http://pdp:8000/authorize
     volumes:
       - ./logs:/app/logs
     ports:
@@ -18,9 +19,11 @@ services:
         condition: service_healthy
   pdp:
     build:
-      context: ./PDP
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: PDP/Dockerfile
     container_name: policy-decision-point
+    environment:
+      - PIP_URL=http://pip:8000/attributes
     volumes:
       - ./logs:/app/logs
       - ./policies:/app/policies:ro
@@ -30,8 +33,8 @@ services:
       - private
   pip:
     build:
-      context: ./PIP
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: PIP/Dockerfile
     container_name: policy-information-point
     volumes:
       - ./logs:/app/logs
