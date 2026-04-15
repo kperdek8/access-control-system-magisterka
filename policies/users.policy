@@ -1,0 +1,2 @@
+RULE DENY IF subject.id == 1
+RULE ALLOW IF subject.id == resource.id OR subject.role == "manager"

@@ -1,3 +1,4 @@
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from repository_placeholder import users
 from common.schemas import AttributeRequest, AttributeResponse
@@ -15,10 +16,10 @@ def evaluate_decision(request: AttributeRequest) -> AttributeResponse:
         raise HTTPException(status_code=404, detail="User not found")
 
     if request.type == "user":
-        attributes = []
+        attributes = {}
         for attribute in request.attributes:
             val = getattr(user, attribute, None)
-            attributes.append({attribute: str(val)})
+            attributes.update({attribute: str(val)})
         return AttributeResponse(attributes=attributes)
     else:
         return AttributeResponse(attributes=[])
@@ -27,3 +28,12 @@ def evaluate_decision(request: AttributeRequest) -> AttributeResponse:
 @app.get("/")
 def health_check():
     return {"status": "alive", "service": "policy_information_point"}
+
+
+if __name__ == "__main__":
+    # Uruchomienie serwera
+    uvicorn.run(
+        "api:app",
+        host="0.0.0.0",
+        port=8002
+    )

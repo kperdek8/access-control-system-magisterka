@@ -29,11 +29,16 @@ def load_policies():
 
 def parse(policy):
     tree = parser.parse(policy)
-    pydot__tree_to_png(tree, "tree.png")
+    #pydot__tree_to_png(tree, "tree.png")
     policy = PolicyTransformer().transform(tree)
-    print(policy)
+    return policy
 
 
-policies = load_policies()
-print(policies)
-parse(policies[0])
+def load_and_parse_policies():
+    policies = load_policies()
+    parsed_policies = []
+    for policy in policies:
+        parsed_policy = parse(policy)
+        for rule in parsed_policy:
+            parsed_policies.append(rule)
+    return parsed_policies

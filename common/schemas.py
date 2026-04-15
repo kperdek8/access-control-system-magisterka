@@ -32,4 +32,4 @@ class AttributeRequest(BaseModel):
 
 
 class AttributeResponse(BaseModel):
-    attributes: List[Any] = None
+    attributes: Dict[str, Any] = None

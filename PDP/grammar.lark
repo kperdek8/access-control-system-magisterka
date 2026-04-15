@@ -8,15 +8,16 @@ ALLOW_KW: "ALLOW"
 DENY_KW: "DENY"
 
 // Operatory logiczne
-?condition: or_operator
-?or_operator: and_operator ("OR" and_operator)*
-?and_operator: atom ("AND" atom)*
+?condition: and_operator
+?and_operator: or_operator ("AND" or_operator)*
+?or_operator: atom ("OR" atom)*
 ?atom: comparison
     | "(" condition ")"
-comparison: attribute op value
+comparison: attribute op value | attribute op attribute
 
 // Atrybuty
 attribute: WORD "." WORD
+
 op: EQUAL_OP | NOT_EQUAL_OP | GREATER_THAN_OR_EQUAL_OP | GREATER_THAN_OP | LESSER_THAN_OR_EQUAL_OP | LESSER_THAN_OP
 EQUAL_OP: "=="
 NOT_EQUAL_OP: "!="
