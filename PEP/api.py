@@ -1,65 +1,66 @@
 from typing import List
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+import uvicorn
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from auth_client import verify_authorization
+
+from common.logger import get_logger
+from common.schemas import Action
+from policy_enforcer import PolicyEnforcer
+from constraint_provider import SQLConstraintProvider, sql_apply_constraints
 import db
 import models
 import schemas
 import seed
-from common.schemas import Action
-
-app = FastAPI()
-security = HTTPBearer()
 
 models.Base.metadata.create_all(bind=db.engine)
 
 
-def get_user_id(res: HTTPAuthorizationCredentials = Depends(security)) -> int:
-    """
-    Wyciąga token z nagłówka 'Authorization: Bearer <id>' i zamienia go na id
-    """
-    try:
-        # res.credentials to treść po słowie 'Bearer '
-        user_id = int(res.credentials)
-        return user_id
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token format. Expected integer ID.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-@app.on_event("startup")
-def configure_db():
-    # Inicjalizacja danych przy starcie aplikacji
+async def lifespan(app: FastAPI):
     with db.SessionLocal() as session:
         seed.seed_users(session)
+    yield
+
+logger = get_logger("PEP-SERVICE")
+logger.setLevel("DEBUG")
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/users", response_model=List[schemas.UserSchema])
-def get_users(database: Session = Depends(db.get_db)) -> List[schemas.UserSchema]:
-    users = database.query(models.User).all()
-    return users
+def get_users(database: Session = Depends(db.get_db),
+              constraints: list = Depends(SQLConstraintProvider(action=Action.READ, resource_type="user", subject_type="user"))
+              ):
+    query = database.query(models.User)
+    logger.debug(f"Base query: {query}")
+    logger.debug(f"Constraints: {constraints}")
+    users = sql_apply_constraints(query=query, model=models.User, constraints=constraints)
+    logger.debug(f"Query updated with constraints: {users.statement.compile(compile_kwargs={"literal_binds": True})}")
+    return users.all()
 
 
 @app.get("/users/{resource_id}", response_model=schemas.UserSchema)
 def get_user(resource_id: int,
-             subject_id: int = Depends(get_user_id),
+             _ = Depends(PolicyEnforcer(action=Action.READ, resource_type="user", subject_type="user",
+                                      error_msg="Musisz być właścicielem profilu")),
              database: Session = Depends(db.get_db)
              ):
-    if verify_authorization(subject={"id": subject_id, "type": "user"}, resource={"id": resource_id, "type": "user"}, action=Action.READ):
-        user_data = database.query(models.User).filter(models.User.id == resource_id).first()
+    user_data = database.query(models.User).filter(models.User.id == resource_id).first()
 
-        if not user_data:
-            raise HTTPException(status_code=404, detail="User not found")
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found")
 
-        return user_data
-    else:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access Denied")
+    return user_data
 
 
 @app.get("/")
 def health_check():
     return {"status": "alive", "service": "policy_enforcement_point"}
+
+
+if __name__ == "__main__":
+    # Uruchomienie serwera
+    uvicorn.run(
+        "api:app",
+        host="0.0.0.0",
+        port=8000
+    )

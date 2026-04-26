@@ -1,4 +1,6 @@
 fastapi
 uvicorn
 requests
+sqlalchemy
+asyncpg
 -e file:./common

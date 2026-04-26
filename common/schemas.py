@@ -1,14 +1,19 @@
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
-from enum import Enum
+from enum import Enum, StrEnum
 
 
-class Decision(str, Enum):
-    PERMIT = "PERMIT"
+class Mode(StrEnum):
+    DECISION = "DECISION"
+    CONSTRAINTS = "CONSTRAINTS"
+
+
+class Decision(StrEnum):
+    ALLOW = "ALLOW"
     DENY = "DENY"
 
 
-class Action(str, Enum):
+class Action(StrEnum):
     READ = "READ"
     WRITE = "WRITE"
     DELETE = "DELETE"
@@ -19,17 +24,19 @@ class AuthorizationRequest(BaseModel):
     subject: Dict[str, Any]
     resource: Dict[str, Any]
     action: Action
+    mode: Optional[Mode] = None
 
 
 class AuthorizationResponse(BaseModel):
     decision: Decision
+    constraints: Optional[Any] = None
 
 
 class AttributeRequest(BaseModel):
-    id: Optional[int] = None
-    type: Optional[str] = None
-    attributes: Optional[List[Any]] = None
+    id: int
+    type: str
+    attributes: List[Any]
 
 
 class AttributeResponse(BaseModel):
-    attributes: Dict[str, Any] = None
+    attributes: Dict[str, Any]

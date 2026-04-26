@@ -1,0 +1,11 @@
+resources:
+  user:
+    source: "main_db"
+    table: "users"
+    primary_key: "id"
+    attributes:
+      id: "id"
+      first_name: "first_name"
+      surname: "surname"
+      role: "role"
+      department: "dept"

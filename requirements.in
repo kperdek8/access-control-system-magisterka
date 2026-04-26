@@ -6,4 +6,5 @@ psycopg2-binary
 pydot
 dotenv
 requests
+asyncpg
 -e ./common

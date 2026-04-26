@@ -1,0 +1,28 @@
+import yaml
+
+
+class SchemaRegistry:
+    def __init__(self, path):
+        with open(path, 'r') as f:
+            self.config = yaml.safe_load(f)
+
+    def get_resource_types(self):
+        return list(self.config['resources'].keys())
+
+    def get_attributes_for_type(self, res_type):
+        return list(self.config['resources'].get(res_type, {}).get('attributes', {}).keys())
+
+    def get_mapping(self, res_type):
+        return self.config['resources'].get(res_type)
+
+
+class SourceRegistry:
+    def __init__(self, path):
+        with open(path, 'r') as f:
+            self._sources = yaml.safe_load(f).get('data_sources', {})
+
+    def get_config(self, source_name: str) -> dict:
+        config = self._sources.get(source_name)
+        if not config:
+            raise ValueError(f"Source '{source_name}' has not been defined.")
+        return config

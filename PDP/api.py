@@ -5,7 +5,7 @@ from typing import List, Any, Dict
 import uvicorn
 import requests
 from fastapi import FastAPI
-from common.schemas import AuthorizationRequest, AuthorizationResponse, Decision, AttributeResponse, AttributeRequest
+from common.schemas import AuthorizationRequest, AuthorizationResponse, Decision, Mode, AttributeResponse, AttributeRequest
 from common.logger import get_logger
 from parser import load_and_parse_policies
 from transformer import Rule
@@ -57,7 +57,7 @@ def get_attributes(id, type: str, attributes: set[str]) -> dict[str, Any]:
 
 
 # TODO: Obsługa atrybutów środowiskowych
-def policy_engine(subject_attributes: dict, resource_attributes: dict):
+def evaluate_decision(subject_attributes: dict, resource_attributes: dict, context: dict):
     missing_attributes = {
         "subject": set(),
         "resource": set()
@@ -66,7 +66,9 @@ def policy_engine(subject_attributes: dict, resource_attributes: dict):
     for policy in policies:
         if isinstance(policy, Rule):
             for category, attr_name in policy.collect_attributes():
-                if category == "subject" and attr_name not in subject_attributes:
+                if category == "context" and attr_name not in context:
+                    pass
+                elif category == "subject" and attr_name not in subject_attributes:
                     missing_attributes["subject"].add(attr_name)
                 elif category == "resource" and attr_name not in resource_attributes:
                     missing_attributes["resource"].add(attr_name)
@@ -81,9 +83,8 @@ def policy_engine(subject_attributes: dict, resource_attributes: dict):
     context = {
         "subject": subject_attributes,
         "resource": resource_attributes,
+        "context": context
     }
-
-    final_decision = False
 
     for policy in policies:
         if isinstance(policy, Rule):
@@ -95,15 +96,54 @@ def policy_engine(subject_attributes: dict, resource_attributes: dict):
     return False
 
 
+def evaluate_constraints(subject_attributes: dict, resource_attributes: dict, context: dict):
+    missing_attributes = {
+        "subject": set()
+    }
+
+    for policy in policies:
+        if isinstance(policy, Rule):
+            for category, attr_name in policy.collect_attributes():
+                if category == "subject" and attr_name not in subject_attributes:
+                    missing_attributes["subject"].add(attr_name)
+
+    logger.debug(f"Missing attributes {missing_attributes}")
+
+    if missing_attributes["subject"]:
+        subject_attributes.update(get_attributes(subject_attributes["id"], subject_attributes["type"], missing_attributes["subject"]))
+
+    context = {
+        "subject": subject_attributes,
+        "resource": resource_attributes,
+        "context": context
+    }
+
+    for policy in policies:
+        if isinstance(policy, Rule):
+            action, constraints = policy.collect_constraints(context)
+            print(f"Action: {action} \n Constraints: {constraints}")
+            if action == "ALLOW":
+                return Decision.ALLOW, constraints
+
+    return Decision.DENY, []
+
+
 @app.post("/authorize", response_model=AuthorizationResponse)
-def evaluate_decision(request: AuthorizationRequest) -> AuthorizationResponse:
+def authorize(request: AuthorizationRequest) -> AuthorizationResponse:
     logger.info(f"Received authorization request: {request}")
-    if policy_engine(request.subject, request.resource):
-        logger.info(f"Authorization decision: {Decision.PERMIT}")
-        return AuthorizationResponse(decision=Decision.PERMIT)
+    context = {
+        "action": request.action
+    }
+    if not request.mode or request.mode == Mode.DECISION:
+        if evaluate_decision(request.subject, request.resource, context):
+            logger.info(f"Authorization decision: {Decision.ALLOW}")
+            return AuthorizationResponse(decision=Decision.ALLOW)
+        else:
+            logger.info(f"Authorization decision: {Decision.DENY}")
+            return AuthorizationResponse(decision=Decision.DENY)
     else:
-        logger.info(f"Authorization decision: {Decision.DENY}")
-        return AuthorizationResponse(decision=Decision.DENY)
+        decision, constraints = evaluate_constraints(request.subject, request.resource, context)
+        return AuthorizationResponse(decision=decision, constraints=constraints)
 
 @app.get("/")
 def health_check():

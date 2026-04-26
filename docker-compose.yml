@@ -7,6 +7,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
       - PDP_URL=http://pdp:8000/authorize
+      - RESOURCE_SCHEMA_PATH=/app/config/schema.yaml
     volumes:
       - ./logs:/app/logs
     ports:
@@ -25,6 +26,7 @@ services:
     environment:
       - PIP_URL=http://pip:8000/attributes
       - POLICY_REPOSITORY_PATH=/app/policies
+      - RESOURCE_SCHEMA_PATH=/app/config/schema.yaml
     volumes:
       - ./logs:/app/logs
       - ./policies:/app/policies:ro
@@ -37,8 +39,13 @@ services:
       context: .
       dockerfile: PIP/Dockerfile
     container_name: policy-information-point
+    environment:
+      - POLICY_REPOSITORY_PATH=/app/policies
+      - RESOURCE_SCHEMA_PATH=/app/config/schema.yaml
+      - ATTRIBUTE_SOURCE_PATH=/app/config/source.yaml
     volumes:
       - ./logs:/app/logs
+      - ./policies:/app/policies:ro
     ports:
       - "8002:8000"
     networks:
