@@ -34,7 +34,9 @@ def get_users(database: Session = Depends(db.get_db),
     logger.debug(f"Base query: {query}")
     logger.debug(f"Constraints: {constraints}")
     users = sql_apply_constraints(query=query, model=models.User, constraints=constraints)
-    logger.debug(f"Query updated with constraints: {users.statement.compile(compile_kwargs={"literal_binds": True})}")
+    logger.debug("Query updated with constraints: {}".format(
+        users.statement.compile(compile_kwargs={"literal_binds": True})
+    ))
     return users.all()
 
 

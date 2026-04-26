@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import requests
 from sqlalchemy import or_, and_
 
-from PEP.policy_enforcer import schema_registry
+from policy_enforcer import schema_registry
 from common.logger import get_logger
 from common.schemas import Decision, Mode
 

@@ -10,6 +10,7 @@ services:
       - RESOURCE_SCHEMA_PATH=/app/config/schema.yaml
     volumes:
       - ./logs:/app/logs
+      - ./config/schema.yaml:/app/config/schema.yaml
     ports:
       - "8000:8000"
     networks:
@@ -30,6 +31,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./policies:/app/policies:ro
+      - ./config/schema.yaml:/app/config/schema.yaml
     ports:
       - "8001:8000"
     networks:
@@ -46,6 +48,8 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./policies:/app/policies:ro
+      - ./config/schema.yaml:/app/config/schema.yaml
+      - ./config/source.yaml:/app/config/source.yaml
     ports:
       - "8002:8000"
     networks:
