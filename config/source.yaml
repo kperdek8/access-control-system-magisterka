@@ -1,4 +1,4 @@
-data_sources:
+attribute_sources:
   main_db:
     type: "postgresql"
     url: "postgresql+asyncpg://user:password@db:5432/users_data"

@@ -1,0 +1,11 @@
+pdp:
+  default_behaviour: "permit_override"
+pip:
+  delegation_db:
+    db_type: "postgresql"
+    host: "localhost"
+    port: "5432"
+    username: "postgres"
+    password: "postgres"
+    database: "magisterka"
+    table: "delegations"

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from models import User
 
+
 def seed_users(db: Session):
     if db.query(User).count() == 0:
         print("Seeding database with initial users...")

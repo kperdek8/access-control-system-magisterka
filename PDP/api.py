@@ -4,9 +4,14 @@ from typing import List, Any, Dict
 
 import uvicorn
 import requests
-from fastapi import FastAPI
-from common.schemas import AuthorizationRequest, AuthorizationResponse, Decision, Mode, AttributeResponse, AttributeRequest
+from fastapi import FastAPI, HTTPException
+
+from delegations import add_delegation, revoke_delegation, get_delegations
+from common.schemas import AuthorizationRequest, AuthorizationResponse, Decision, Mode, AttributeResponse, \
+    AttributeRequest, Behaviour, AddDelegationResponse, RevokeDelegationResponse, AddDelegationRequest, \
+    RevokeDelegationRequest
 from common.logger import get_logger
+from common.settings import Settings
 from parser import load_and_parse_policies
 from transformer import Rule
 
@@ -14,12 +19,21 @@ logger = get_logger("PDP-SERVICE")
 PIP_URL = os.getenv("PIP_URL")
 
 policies: list = []
+behaviour: Behaviour
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global policies
+    global behaviour
     policies = load_and_parse_policies()
+    settings_path = os.getenv("SETTINGS_PATH")
+    settings = Settings(settings_path)
+    behaviour = settings.get_pdp_mode()
+    if behaviour not in [Behaviour.PERMIT_OVERRIDE, Behaviour.DENY_OVERRIDE]:
+        raise RuntimeError(f"Invalid behaviour in settings file. Please use '{Behaviour.DENY_OVERRIDE}' or '{Behaviour.PERMIT_OVERRIDE}'.")
+    else:
+        logger.info(f"PDP started with mode: {behaviour}")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -35,11 +49,13 @@ def get_attributes(id, type: str, attributes: set[str]) -> dict[str, Any]:
         attributes=attributes
     )
 
+    base_url = PIP_URL.rstrip("/")
+    target_url = f"{base_url}/attributes"
     logger.info(f"Sending attributes request: {attribute_request} to {PIP_URL}")
 
     try:
         response = requests.post(
-            PIP_URL,
+            target_url,
             data=attribute_request.model_dump_json(),
             headers={"Content-Type": "application/json"},
             timeout=5
@@ -53,10 +69,9 @@ def get_attributes(id, type: str, attributes: set[str]) -> dict[str, Any]:
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Error during communication with PIP: {e}")
-        return []
+        return {}
 
 
-# TODO: Obsługa atrybutów środowiskowych
 def evaluate_decision(subject_attributes: dict, resource_attributes: dict, context: dict):
     missing_attributes = {
         "subject": set(),
@@ -86,14 +101,30 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, conte
         "context": context
     }
 
+    final_decision = False  # Domyślnie zakaz
+
     for policy in policies:
         if isinstance(policy, Rule):
             decision = policy.evaluate(context)
-            # TODO: Metody rozwiązywania konfliktów, narazie Permit-Overrides
-            if decision == "ALLOW":
+            if decision == "ALLOW" and behaviour == Behaviour.PERMIT_OVERRIDE:
                 return True
+            elif decision == "ALLOW" and behaviour == Behaviour.PERMIT_OVERRIDE:
+                final_decision = True
+            elif decision == "DENY" and behaviour == Behaviour.DENY_OVERRIDE:
+                return False
 
-    return False
+    if not final_decision:
+        delegations = get_delegations(pip_url=PIP_URL,
+                                      subject_id=subject_attributes["id"],
+                                      subject_type=subject_attributes["type"],
+                                      resource_id=resource_attributes["id"],
+                                      resource_type=resource_attributes["type"]
+                                      )
+        if delegations:
+            final_decision = True
+            logger.info(f"Access granted based on delegation: {delegations[0]}")
+
+    return final_decision
 
 
 def evaluate_constraints(subject_attributes: dict, resource_attributes: dict, context: dict):
@@ -144,6 +175,27 @@ def authorize(request: AuthorizationRequest) -> AuthorizationResponse:
     else:
         decision, constraints = evaluate_constraints(request.subject, request.resource, context)
         return AuthorizationResponse(decision=decision, constraints=constraints)
+
+
+# TODO: Weryfikacja
+@app.post("/delegations", response_model=AddDelegationResponse)
+def add_delegation_endpoint(request: AddDelegationRequest):
+    status_code, result = add_delegation(pip_url=PIP_URL, delegation=request)
+    if status_code != 200:
+        raise HTTPException(status_code=status_code, detail=result)
+    return result
+
+
+# TODO: Weryfikacja
+@app.patch("/delegations/revoke", response_model=RevokeDelegationResponse)
+def revoke_delegation_endpoint(request: RevokeDelegationRequest):
+    status_code, result = revoke_delegation(pip_url=PIP_URL, delegation=request)
+
+    if status_code != 200:
+        raise HTTPException(status_code=status_code, detail=result)
+
+    return result
+
 
 @app.get("/")
 def health_check():

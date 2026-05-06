@@ -1,3 +1,5 @@
+from sqlalchemy.exc import DBAPIError
+
 from common.registry import SchemaRegistry, SourceRegistry
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy import text
@@ -46,14 +48,19 @@ class AttributeRegistry:
         pk_col = mapping['primary_key']
         engine = await self._get_engine(source_name)
 
-        print(columns_to_fetch)
-        print(columns_to_fetch.values())
         col_names_string = ", ".join(columns_to_fetch.values())
         query = text(f"SELECT {col_names_string} FROM {table} WHERE {pk_col} = :id")
 
         async with engine.connect() as conn:
-            result = await conn.execute(query, {"id": resource_id})
-            row = result.fetchone()
+            # Najpierw próba wykonania zapytania z ID w formie stringa,
+            # w przypadku niepowodzenia zapytanie jest powtórzone z castem na integer.
+            try:
+                result = await conn.execute(query, {"id": resource_id})
+                row = result.fetchone()
+            except DBAPIError as e:
+                if isinstance(resource_id, str) and resource_id.isdigit():
+                    result = await conn.execute(query, {"id": int(resource_id)})
+                    row = result.fetchone()
 
             if not row:
                 return {}

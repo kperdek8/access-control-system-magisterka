@@ -3,7 +3,7 @@ import yaml
 
 class SchemaRegistry:
     def __init__(self, path):
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
 
     def get_resource_types(self):
@@ -18,8 +18,8 @@ class SchemaRegistry:
 
 class SourceRegistry:
     def __init__(self, path):
-        with open(path, 'r') as f:
-            self._sources = yaml.safe_load(f).get('data_sources', {})
+        with open(path, 'r', encoding='utf-8') as f:
+            self._sources = yaml.safe_load(f).get('attribute_sources', {})
 
     def get_config(self, source_name: str) -> dict:
         config = self._sources.get(source_name)

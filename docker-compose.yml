@@ -25,7 +25,7 @@ services:
       dockerfile: PDP/Dockerfile
     container_name: policy-decision-point
     environment:
-      - PIP_URL=http://pip:8000/attributes
+      - PIP_URL=http://pip:8000
       - POLICY_REPOSITORY_PATH=/app/policies
       - RESOURCE_SCHEMA_PATH=/app/config/schema.yaml
     volumes:
