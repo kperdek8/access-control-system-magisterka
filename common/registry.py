@@ -12,6 +12,9 @@ class SchemaRegistry:
     def get_attributes_for_type(self, res_type):
         return list(self.config['resources'].get(res_type, {}).get('attributes', {}).keys())
 
+    def get_primary_key_for_type(self, res_type):
+        return self.config['resources'].get(res_type, {}).get('primary_key')
+
     def get_mapping(self, res_type):
         return self.config['resources'].get(res_type)
 

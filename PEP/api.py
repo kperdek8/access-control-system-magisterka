@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
     yield
 
 logger = get_logger("PEP-SERVICE")
-logger.setLevel("DEBUG")
+# logger.setLevel("DEBUG")
 app = FastAPI(lifespan=lifespan)
 
 

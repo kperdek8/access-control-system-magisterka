@@ -28,11 +28,12 @@ LESSER_THAN_OR_EQUAL_OP: "<="
 
 // Delegacja
 delegation: "DELEGATION" "{" parameter+ "}"
-parameter: key ":" value
+parameter: key ":" (condition | array | value)
 key: WORD
 
 // Pozostale
 value: WORD | NUMBER | ESCAPED_STRING
+array: "[" [value ("," value)*] "]"
 WORD: /[a-zA-Z_][a-zA-Z0-9_]*/
 
 // Importy

@@ -47,6 +47,8 @@ def add_delegation(db: Session, data: DelegationSchema):
         Delegation.active == True
     ).first()
 
+    print(existing_delegation)
+
     if existing_delegation:
         expiration_date = existing_delegation.start_date + existing_delegation.duration
         if expiration_date > now:

@@ -53,8 +53,8 @@ class PolicyEnforcer:
 
     def __call__(self, resource_id: int, subject_id: int = Depends(get_subject_id)) -> bool:
         auth_request = {
-            "subject": {"id": subject_id, "type": self.subject_type},
-            "resource": {"id": resource_id, "type": self.resource_type},
+            "subject": {"id": str(subject_id), "type": self.subject_type},
+            "resource": {"id": str(resource_id), "type": self.resource_type},
             "action": self.action
         }
 

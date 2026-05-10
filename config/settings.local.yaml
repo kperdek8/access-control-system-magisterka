@@ -3,9 +3,9 @@ pdp:
 pip:
   delegation_db:
     db_type: "postgresql"
-    host: "delegation_db"
+    host: "localhost"
     port: "5432"
-    username: "user"
-    password: "password"
-    database: "delegation_data"
+    username: "postgres"
+    password: "postgres"
+    database: "magisterka"
     table: "delegations"

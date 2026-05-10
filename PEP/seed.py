@@ -8,7 +8,8 @@ def seed_users(db: Session):
         sample_users = [
             User(first_name="adam", surname="kowalski", role="admin", department="IT", salary=12000),
             User(first_name="anna", surname="nowak", role="manager", department="HR", salary=10000),
-            User(first_name="jan", surname="lewandowski", role="worker", department="Production", salary=6000)
+            User(first_name="jan", surname="lewandowski", role="worker", department="Production", salary=6000),
+            User(first_name="krzysztof", surname="truskawka", role="worker", department="Production", salary=7000)
         ]
         db.add_all(sample_users)
         db.commit()

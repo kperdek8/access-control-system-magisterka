@@ -80,6 +80,8 @@ async def get_attributes(request: AttributeRequest) -> AttributeResponse:
     logger.info(f"Received attribute request: {request}")
 
     attributes = await attribute_registry.get_attributes(resource_type=request.type, resource_id=request.id, attributes=request.attributes)
+
+    logger.info(f"Sending response: {AttributeResponse(attributes=attributes)}")
     return AttributeResponse(attributes=attributes)
 
 

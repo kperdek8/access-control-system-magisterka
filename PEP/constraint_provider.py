@@ -122,7 +122,7 @@ class SQLConstraintProvider:
 
     def __call__(self, subject_id: int = Depends(get_subject_id)) -> list:
         auth_request = {
-            "subject": {"id": subject_id, "type": self.subject_type},
+            "subject": {"id": str(subject_id), "type": self.subject_type},
             "resource": {"type": self.resource_type},
             "action": self.action,
             "mode": Mode.CONSTRAINTS

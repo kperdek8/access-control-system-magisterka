@@ -9,10 +9,10 @@ from common.schemas import AddDelegationRequest, AddDelegationResponse, RevokeDe
 logger = get_logger("PDP-SERVICE")
 
 
-def add_delegation(pip_url: str, delegation: AddDelegationRequest) -> AddDelegationResponse:
+def add_delegation(pip_url: str, delegation: AddDelegationRequest) -> tuple[int, str]:
     base_url = pip_url.rstrip("/")
     target_url = f"{base_url}/delegations"
-    logger.info(f"Sending request to revoke delegation to {target_url}")
+    logger.info(f"Sending request to add delegation to {target_url}")
 
     try:
         response = requests.post(
@@ -24,21 +24,27 @@ def add_delegation(pip_url: str, delegation: AddDelegationRequest) -> AddDelegat
         response.raise_for_status()
 
         add_delegation_response = AddDelegationResponse(**response.json())
-        if response.status_code == 200:
-            logger.info(f"Delegation added successfully")
-        else:
-            logger.info(f"Delegation addition failed")
+        logger.info(f"Delegation added successfully")
 
-        return add_delegation_response
+        return 200, add_delegation_response.detail
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        try:
+            error_json = e.response.json()
+            error_msg = error_json.get("details") or error_json.get("detail") or str(e)
+        except Exception:
+            error_msg = e.response.text or str(e)
 
+        logger.error(f"PIP returned error {status_code}: {error_msg}")
+        return status_code, error_msg
     except requests.exceptions.RequestException as e:
         logger.error(f"Error during communication with PIP: {e}")
-        return AddDelegationResponse(details="Server-side error, contact administrator.")
+        return 500, "Server-side error, contact administrator."
 
 
 def revoke_delegation(pip_url: str, delegation: RevokeDelegationRequest) -> Tuple[int, RevokeDelegationResponse]:
     base_url = pip_url.rstrip("/")
-    target_url = f"{base_url}/delegations"
+    target_url = f"{base_url}/delegations/revoke"
     logger.info(f"Sending request to revoke delegation to {target_url}")
 
     try:
@@ -51,13 +57,20 @@ def revoke_delegation(pip_url: str, delegation: RevokeDelegationRequest) -> Tupl
         response.raise_for_status()
 
         revoke_delegation_response = RevokeDelegationResponse(**response.json())
-        if response.status_code == 200:
-            logger.info(f"Delegation revoked successfully")
-            return response.status_code, revoke_delegation_response
-        else:
-            logger.info(f"Delegation revocation failed")
-            return response.status_code, revoke_delegation_response
-
+        logger.info(f"Delegation revoked successfully")
+        return response.status_code, revoke_delegation_response
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        try:
+            error_json = e.response.json()
+            error_msg = error_json.get("details") or error_json.get("detail") or str(e)
+        except Exception:
+            error_msg = e.response.text or str(e)
+        # HTTP 404 jest oczekiwanym błędem, brak potrzeby logowania
+        if status_code != 404:
+            logger.error(f"PIP returned error {status_code}: {error_msg}")
+        logger.info(f"Delegation revocation failed")
+        return status_code, error_msg
     except requests.exceptions.RequestException as e:
         logger.error(f"Error during communication with PIP: {e}")
         return 500, RevokeDelegationResponse(details="Server-side error, contact administrator.")

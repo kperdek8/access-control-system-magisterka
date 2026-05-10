@@ -1,8 +1,14 @@
+from datetime import timedelta
+from typing import Dict, Any
+
+import isodate
 from lark import Transformer, Token
 from common.logger import get_logger
 import operator
 
-logger = get_logger("PDP-SERVICE")
+from common.schemas import Action
+
+logger = get_logger("PDP-SERVICE-TRANSFORMER")
 # logger.setLevel("DEBUG")
 
 
@@ -69,11 +75,19 @@ class Comparison:
         if left_val is None or right_val is None:
             return False
 
+        if type(left_val) != type(right_val):
+            try:
+                if isinstance(left_val, (int, float)):
+                    right_val = type(left_val)(right_val)
+                elif isinstance(right_val, (int, float)):
+                    left_val = type(right_val)(left_val)
+            except (ValueError, TypeError):
+                pass
+
         op_func = self.OPERATORS.get(self.op)
 
         if not op_func:
             raise ValueError(f"Unsupported operator: '{self.op}'")
-
         try:
             return op_func(left_val, right_val)
         except TypeError:
@@ -182,11 +196,84 @@ class Rule:
         else:
             return self.action, flatten_constraints(result)
 
+class DelegationRule:
+    def __init__(self, type: str = "DELEGATION", params=None):
+        self.type = type
+        if params is None:
+            params = {}
+
+        required_fields = [
+            "resource_type",
+            "delegator_type",
+            "delegatee_type",
+            "actions"
+        ]
+
+        missing = [field for field in required_fields if field not in params]
+        if missing:
+            raise ValueError(f"Invalid delegation rule. Missing parameters: {', '.join(missing)}")
+
+        raw_active = str(params.get("active", "true")).lower()
+        self.active = raw_active != "false"
+
+        self.resource_type = str(params["resource_type"])
+        self.delegator_type = str(params["delegator_type"])
+        self.delegatee_type = str(params["delegatee_type"])
+
+        # Walidacja reguły logicznej
+        rule = params.get("rule", None)
+        if rule and not isinstance(rule, LogicalOperator) and not isinstance(rule, Comparison):
+            raise ValueError(
+                f"Parameter 'rule' must be a valid logical rule."
+            )
+        self.rule = rule
+
+        # Walidacja akcji
+        actions = params.get("actions", [])
+        if not isinstance(actions, list):
+            actions = [actions]
+
+        try:
+            self.actions = [Action(str(action).upper()) for action in actions]
+        except ValueError as e:
+            valid_actions = [str(action) for action in Action]
+            raise ValueError(f"Invalid action in parameter 'actions': {params.get('actions')}. Possible values: {valid_actions}.")
+
+        # Walidacja głębi
+        try:
+            depth = params.get("max_depth", 1)
+            self.max_depth = int(depth)
+            if self.max_depth < 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid value for 'max_depth': {params.get('max_depth')}. Value should be a positive integer.")
+
+        # Walidacja długości (format ISO 8601)
+        raw_duration = params.get("max_duration")
+        if raw_duration is None:
+            self.max_duration = 0
+        else:
+            self.max_duration = _parse_iso_duration(raw_duration)
+
+    def __repr__(self):
+        actions_str = ", ".join([str(action) for action in self.actions])
+
+        return (
+            f"<{self.type} Rule: "
+            f"Delegator(type: {self.delegator_type}) | "
+            f"Delegatee(type: {self.delegatee_type}) | "
+            f"Resource(type: {self.resource_type}) | "
+            f"Conditions: {self.rule} | "
+            f"Actions[{actions_str}] | "
+            f"MaxDepth={self.max_depth} | "
+            f"MaxDuration={self.max_duration}>"
+        )
+
 
 class PolicyTransformer(Transformer):
     #  Obsługa Delegacji
     def delegation(self, children):
-        return {"type": "DELEGATION", "params": dict(children)}
+        return DelegationRule(type="DELEGATION", params=dict(children))
 
     def parameter(self, children):
         key, value = children
@@ -231,6 +318,9 @@ class PolicyTransformer(Transformer):
     def op(self, children):
         return str(children[0])
 
+    def array(self, items):
+        return list(items)
+
     def value(self, children):
         val = children[0]
         # Konwersja typów
@@ -238,8 +328,9 @@ class PolicyTransformer(Transformer):
             if val.type == 'NUMBER':
                 val = float(val)
                 return int(val) if val.is_integer() else val
-            if val.type == 'ESCAPED_STRING': return val[1:-1]
-        return str(val)
+            if val.type == 'ESCAPED_STRING':
+                return val[1:-1]
+        return val
 
     def start(self, children):
         return children
@@ -279,3 +370,15 @@ def flatten_constraints(constraint):
             return combined
 
     return constraint
+
+
+def _parse_iso_duration(value: Any) -> timedelta:
+    """Konwertuje format P60D na obiekt timedelta."""
+    if isinstance(value, timedelta):
+        return value
+    try:
+        # Obsługuje formaty typu P60D, PT12H itp.
+        return isodate.parse_duration(str(value))
+    except Exception:
+        raise ValueError(
+            f"Invalid time format for parameter 'max_duration': {value}. Value should be in ISO 8601 format (e.g. 'P60D').")

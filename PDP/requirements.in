@@ -5,4 +5,5 @@ pydot
 dotenv
 requests
 pytest
+isodate
 -e file:./common

@@ -7,4 +7,5 @@ pydot
 dotenv
 requests
 asyncpg
+isodate
 -e ./common
