@@ -7,16 +7,16 @@ class SchemaRegistry:
             self.config = yaml.safe_load(f)
 
     def get_resource_types(self):
-        return list(self.config['resources'].keys())
+        return list(self.config['types'].keys())
 
     def get_attributes_for_type(self, res_type):
-        return list(self.config['resources'].get(res_type, {}).get('attributes', {}).keys())
+        return list(self.config['types'].get(res_type, {}).get('attributes', {}).keys())
 
     def get_primary_key_for_type(self, res_type):
-        return self.config['resources'].get(res_type, {}).get('primary_key')
+        return self.config['types'].get(res_type, {}).get('primary_key')
 
     def get_mapping(self, res_type):
-        return self.config['resources'].get(res_type)
+        return self.config['types'].get(res_type)
 
 
 class SourceRegistry:

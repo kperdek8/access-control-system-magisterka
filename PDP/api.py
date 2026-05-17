@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import List, Any, Dict
@@ -16,6 +17,7 @@ from common.logger import get_logger
 from common.settings import Settings
 from parser import load_and_parse_policies, PolicyStore
 from transformer import Rule, DelegationRule
+from attributes import get_attributes, get_attributes_batch
 
 logger = get_logger("PDP-SERVICE")
 #logger.setLevel("DEBUG")
@@ -44,39 +46,6 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
-
-
-def get_attributes(id, type: str, attributes: set[str]) -> dict[str, Any]:
-    """
-    Wysyła zapytanie do PIP o atrybuty.
-    """
-    attribute_request = AttributeRequest(
-        id=id,
-        type=type,
-        attributes=attributes
-    )
-
-    base_url = PIP_URL.rstrip("/")
-    target_url = f"{base_url}/attributes"
-    logger.info(f"Sending attributes request: {attribute_request} to {PIP_URL}")
-
-    try:
-        response = requests.post(
-            target_url,
-            data=attribute_request.model_dump_json(),
-            headers={"Content-Type": "application/json"},
-            timeout=5
-        )
-        response.raise_for_status()
-
-        attributes_response = AttributeResponse(**response.json())
-        logger.info(f"Received attributes {attributes_response.attributes}")
-
-        return attributes_response.attributes
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error during communication with PIP: {e}")
-        return {}
 
 
 def evaluate_delegation_request(request: AddDelegationRequest):
@@ -122,11 +91,20 @@ def evaluate_delegation_request(request: AddDelegationRequest):
     logger.debug(f"Missing attributes {missing_attributes}")
 
     if missing_attributes["resource"]:
-        attributes["resource"].update(get_attributes(attributes["resource"][resource_primary_key], attributes["resource"]["type"], missing_attributes["resourcet"]))
+        attributes["resource"].update(get_attributes(pip_url=PIP_URL,
+                                                     id=attributes["resource"][resource_primary_key],
+                                                     type=attributes["resource"]["type"],
+                                                     attributes=missing_attributes["resourcet"]))
     if missing_attributes["delegatee"]:
-        attributes["delegatee"].update(get_attributes(attributes["delegatee"][resource_primary_key], attributes["delegatee"]["type"], missing_attributes["delegatee"]))
+        attributes["delegatee"].update(get_attributes(pip_url=PIP_URL,
+                                                      id=attributes["delegatee"][resource_primary_key],
+                                                      type=attributes["delegatee"]["type"],
+                                                      attributes=missing_attributes["delegatee"]))
     if missing_attributes["delegator"]:
-        attributes["delegator"].update(get_attributes(attributes["delegator"][resource_primary_key], attributes["delegator"]["type"], missing_attributes["delegator"]))
+        attributes["delegator"].update(get_attributes(pip_url=PIP_URL,
+                                                      id=attributes["delegator"][resource_primary_key],
+                                                      type=attributes["delegator"]["type"],
+                                                      attributes=missing_attributes["delegator"]))
 
     context = {
         "resource": attributes["resource"],
@@ -157,9 +135,15 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, reque
     logger.debug(f"Missing attributes {missing_attributes}")
 
     if missing_attributes["subject"]:
-        subject_attributes.update(get_attributes(subject_attributes["id"], subject_attributes["type"], missing_attributes["subject"]))
+        subject_attributes.update(get_attributes(pip_url=PIP_URL,
+                                                 id=subject_attributes["id"],
+                                                 type=subject_attributes["type"],
+                                                 attributes=missing_attributes["subject"]))
     if missing_attributes["resource"]:
-        resource_attributes.update(get_attributes(resource_attributes["id"], resource_attributes["type"], missing_attributes["resource"]))
+        resource_attributes.update(get_attributes(pip_url=PIP_URL,
+                                                  id=resource_attributes["id"],
+                                                  type=resource_attributes["type"],
+                                                  attributes=missing_attributes["resource"]))
 
     context = {
         "subject": subject_attributes,
@@ -178,19 +162,124 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, reque
         elif decision == "DENY" and behaviour == Behaviour.DENY_OVERRIDE:
             return False
 
-    applicable_delegation_rules = policies.find_delegation_by_delegatee(res_type=resource_attributes["type"], delegatee_type=subject_attributes["type"], action=request_context["action"])
+    applicable_delegation_rules = policies.find_delegation_by_delegatee(res_type=resource_attributes["type"],
+                                                                        delegatee_type=subject_attributes["type"],
+                                                                        action=request_context["action"])
     if not final_decision and applicable_delegation_rules:
         delegations = get_delegations(pip_url=PIP_URL,
                                       subject_id=subject_attributes["id"],
                                       subject_type=subject_attributes["type"],
                                       resource_id=resource_attributes["id"],
-                                      resource_type=resource_attributes["type"]
-                                      )
-        # TODO: Możliwość ciągłej weryfikacji
+                                      resource_type=resource_attributes["type"])
         if delegations:
-            final_decision = True
-            logger.info(f"Access granted based on delegation: {delegations[0]}")
+            logger.info(f"Found {len(delegations)} active delegations in PIP.")
+            missing_delegators_attrs = defaultdict(set)
+            missing_delegation_subject_attrs = set()
+            missing_delegation_resource_attrs = set()
 
+            valid_delegation_candidates = []
+
+            for delegation in delegations:
+                # 1. Znajdź istotne reguły w PolicyStore na podstawie metadanych wpisu delegacji
+                relevant_rules = policies.find_delegation(
+                    res_type=delegation.resource_type,
+                    delegatee_type=delegation.delegatee_type,
+                    delegator_type=delegation.delegator_type,
+                    action=request_context["action"]
+                )
+
+                # 2. Jeżeli dana delegacja nie posiada istotnej reguły w PolicyStore, uznaj ją za nieważną
+                if not relevant_rules:
+                    continue
+
+                valid_delegation_candidates.append({
+                    "delegation": delegation,
+                    "rules": relevant_rules
+                })
+
+                # 3. Zbierz wymagane atrybuty
+                for d_rule in relevant_rules:
+                    for category, attribute in d_rule.rule.collect_attributes():
+                        if category == "delegator":
+                            delegator_key = (delegation.delegator_type, delegation.delegator_id)
+                            missing_delegators_attrs[delegator_key].add(attribute)
+                        elif category == "delegatee" and attribute not in subject_attributes:
+                            missing_delegation_subject_attrs.add(attribute)
+                        elif category == "resource" and attribute not in resource_attributes:
+                            missing_delegation_resource_attrs.add(attribute)
+
+            fetched_batch_data = {}
+            pip_batch_payload = []
+
+            # A. Dodaj do batcha unikalnych delegatorów
+            for (del_type, del_id), attrs in missing_delegators_attrs.items():
+                pip_batch_payload.append({
+                    "id": del_id,
+                    "type": del_type,
+                    "attributes": list(attrs)
+                })
+            # B. Jeśli brakuje atrybutów podmiotu (delegatee dla wpisu delegacji), dodaj go do tego samego batcha
+            if missing_delegation_subject_attrs:
+                pip_batch_payload.append({
+                    "id": str(subject_attributes["id"]),
+                    "type": subject_attributes["type"],
+                    "attributes": list(missing_delegation_subject_attrs)
+                })
+            # C. Jeśli brakuje atrybutów zasobu, dodaj go do tego samego batcha
+            if missing_delegation_resource_attrs:
+                pip_batch_payload.append({
+                    "id": str(resource_attributes["id"]),
+                    "type": resource_attributes["type"],
+                    "attributes": list(missing_delegation_resource_attrs)
+                })
+
+            if pip_batch_payload:
+                fetched_batch_data = get_attributes_batch(pip_url=PIP_URL, entities_to_fetch=pip_batch_payload)
+
+            # 4. Zaktualizuj zasób i podmiot o brakujące atrybuty
+            if missing_delegation_subject_attrs:
+                extra_subject_data = fetched_batch_data.get(subject_attributes["type"], {}).get(str(subject_attributes["id"]), {})
+                subject_attributes.update(extra_subject_data)
+
+            if missing_delegation_resource_attrs:
+                extra_resource_data = fetched_batch_data.get(resource_attributes["type"], {}).get(str(resource_attributes["id"]), {})
+                resource_attributes.update(extra_resource_data)
+
+            # 5. Ewaluacja reguł delegacji z kompletnym kontekstem
+            for candidate in valid_delegation_candidates:
+                current_delegation = candidate["delegation"]
+                current_rules = candidate["rules"]
+
+                del_type = current_delegation.delegator_type
+                del_id = str(current_delegation.delegator_id)
+                delegator_attributes = fetched_batch_data.get(del_type, {}).get(del_id, {})
+
+                delegation_context = {
+                    "subject": subject_attributes,
+                    "resource": resource_attributes,
+                    "delegator": delegator_attributes,
+                    "context": request_context
+                }
+
+                delegation_approved = False
+                final_rule = None
+                for d_rule in current_rules:
+                    try:
+                        if d_rule.rule.evaluate(delegation_context):
+                            if current_delegation.duration <= d_rule.max_duration:
+                                delegation_approved = True
+                                final_rule = d_rule
+                                break
+                            else:
+                                logger.warning(f"Delegation rejected: duration limit exceeded.")
+                    except Exception as e:
+                        logger.error(f"Error during continuous verification evaluation: {e}")
+                        continue
+
+                if delegation_approved:
+                    final_decision = True
+                    logger.info(f"Access granted based on delegation: {current_delegation} fulfilling rule: {final_rule.rule}")
+                    break
     return final_decision
 
 

@@ -62,8 +62,16 @@ class AttributeRequest(BaseModel):
     attributes: List[Any]
 
 
+class BatchAttributeRequest(BaseModel):
+    entities: List[AttributeRequest]
+
+
 class AttributeResponse(BaseModel):
     attributes: Dict[str, Any]
+
+
+class BatchAttributeResponse(BaseModel):
+    attributes: Dict[str, Dict[str, Dict[str, Any]]]
 
 
 class AddDelegationRequest(BaseModel):

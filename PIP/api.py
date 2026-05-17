@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Annotated
 
 import uvicorn
@@ -9,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from common.settings import Settings
 from common.schemas import AttributeRequest, AttributeResponse, AddDelegationRequest, RevokeDelegationRequest, \
-    AddDelegationResponse, RevokeDelegationResponse, DelegationSchema, GetDelegationsResponse, GetDelegationsRequest
+    AddDelegationResponse, RevokeDelegationResponse, DelegationSchema, GetDelegationsResponse, GetDelegationsRequest, \
+    BatchAttributeResponse, BatchAttributeRequest
 from common.logger import get_logger
 from common.registry import SchemaRegistry, SourceRegistry
 from attributes_registry import AttributeRegistry
@@ -83,6 +85,31 @@ async def get_attributes(request: AttributeRequest) -> AttributeResponse:
 
     logger.info(f"Sending response: {AttributeResponse(attributes=attributes)}")
     return AttributeResponse(attributes=attributes)
+
+
+@app.post("/attributes/batch", response_model=BatchAttributeResponse)
+async def get_attributes_batch(request: BatchAttributeRequest) -> BatchAttributeResponse:
+    logger.info(f"Received batch attribute request for {len(request.entities)} entities")
+
+    grouped = defaultdict(lambda: {"ids": set(), "attrs": set()})
+
+    for entity in request.entities:
+        grouped[entity.type]["ids"].add(entity.id)
+        grouped[entity.type]["attrs"].update(entity.attributes)
+
+    results = {}
+
+    # Iterujemy po typach zasobów przesłanych w żądaniu
+    for res_type, data in grouped.items():
+        res_type_data = await attribute_registry.get_attributes_batch(
+            resource_type=res_type,
+            resource_ids=list(data["ids"]),
+            attributes=list(data["attrs"])
+        )
+        if res_type_data:
+            results[res_type] = res_type_data
+
+    return BatchAttributeResponse(attributes=results)
 
 
 @app.get("/")

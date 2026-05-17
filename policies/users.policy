@@ -1,5 +1,4 @@
-RULE DENY IF subject.id == 1
-RULE ALLOW IF context.action == "READ" AND resource.type == "user" AND subject.id == resource.id OR subject.role == "manager"
+RULE ALLOW IF context.action == "READ" AND resource.type == "user" AND (subject.id == resource.id OR subject.role == "manager")
 DELEGATION {
     rule: delegator.id == resource.id OR delegator.role == "manager"
     resource_type: "user"

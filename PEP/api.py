@@ -42,8 +42,7 @@ def get_users(database: Session = Depends(db.get_db),
 
 @app.get("/users/{resource_id}", response_model=schemas.UserSchema)
 def get_user(resource_id: int,
-             _ = Depends(PolicyEnforcer(action=Action.READ, resource_type="user", subject_type="user",
-                                      error_msg="Musisz być właścicielem profilu")),
+             _ = Depends(PolicyEnforcer(action=Action.READ, resource_type="user", subject_type="user", error_msg="Musisz być właścicielem profilu")),
              database: Session = Depends(db.get_db)
              ):
     user_data = database.query(models.User).filter(models.User.id == resource_id).first()

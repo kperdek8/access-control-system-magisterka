@@ -1,4 +1,4 @@
-resources:
+types:
   user:
     source: "main_db"
     table: "users"
