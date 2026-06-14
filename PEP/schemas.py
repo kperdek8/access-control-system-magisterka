@@ -6,7 +6,7 @@ class UserSchema(BaseModel):
     first_name: str
     surname: str
     role: str
-    department: str
+    dept: str
     salary: int
 
     class Config:

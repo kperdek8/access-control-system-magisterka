@@ -66,7 +66,7 @@ def load_policies():
     policy_files = [file for file in os.listdir(policies_path) if os.path.splitext(file)[1] == '.policy']
     policies = []
     for policy_file in policy_files:
-        with open(os.path.join(policies_path, policy_file), "r") as f:
+        with open(os.path.join(policies_path, policy_file), "r", encoding="utf-8") as f:
             policies.append(f.read())
     return policies
 
@@ -83,6 +83,12 @@ def load_and_parse_policies(schema_registry: SchemaRegistry):
     parsed_policies = []
     for policy in policies:
         parsed_policy = parse(policy)
-        for rule in parsed_policy:
+
+        if isinstance(parsed_policy, (list, tuple)):
+            rules = parsed_policy
+        else:
+            rules = [parsed_policy]
+
+        for rule in rules:
             parsed_policies.append(rule)
     return PolicyStore(parsed_policies, schema_registry)

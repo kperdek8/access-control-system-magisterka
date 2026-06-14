@@ -72,18 +72,10 @@ class Comparison:
         logger.debug(f"Evaluated left value: {left_val}")
         logger.debug(f"Evaluated right value: {right_val}")
 
+        left_val, right_val = self._coerce_types(left_val, right_val)
+
         if left_val is None or right_val is None:
             return False
-
-        if type(left_val) != type(right_val):
-            try:
-                if isinstance(left_val, (int, float)):
-                    right_val = type(left_val)(right_val)
-                elif isinstance(right_val, (int, float)):
-                    left_val = type(right_val)(left_val)
-            except (ValueError, TypeError):
-                pass
-
         op_func = self.OPERATORS.get(self.op)
 
         if not op_func:
@@ -95,15 +87,30 @@ class Comparison:
 
     def collect_constraints(self, context: dict):
         left_res = self.left.collect_constraints(context) if hasattr(self.left, 'collect_constraints') else self.left
-        right_res = self.right.collect_constraints(context) if hasattr(self.right,
-                                                                       'collect_constraints') else self.right
+        right_res = self.right.collect_constraints(context) if hasattr(self.right, 'collect_constraints') else self.right
         # Jeśli obie strony są już konkretnymi wartościami (nie obiektami klasy Attribute/Comparison)
-        if not hasattr(left_res, 'evaluate') and not hasattr(right_res, 'evaluate'):
+        if not isinstance(left_res, Attribute) and not isinstance(right_res, Attribute):
+            left_res, right_res = self._coerce_types(left_res, right_res)
+
             logger.debug(f"Simplifying: {left_res} {self.op} {right_res} to {self.OPERATORS[self.op](left_res, right_res)}")
             return self.OPERATORS[self.op](left_res, right_res)
 
         # Jeśli chociaż jedna strona pozostaje atrybutem, zwracamy nowy obiekt Comparison z częściowo uzupełnionymi danymi
         return Comparison(left_res, self.op, right_res)
+
+    def _coerce_types(self, left_val, right_val):
+        """Metoda pomocnicza do ujednolicania typów"""
+        if left_val is None or right_val is None:
+            return left_val, right_val
+        if type(left_val) != type(right_val):
+            try:
+                if isinstance(left_val, (int, float)):
+                    right_val = type(left_val)(right_val)
+                elif isinstance(right_val, (int, float)):
+                    left_val = type(right_val)(left_val)
+            except (ValueError, TypeError):
+                pass
+        return left_val, right_val
 
 
 class LogicalOperator:

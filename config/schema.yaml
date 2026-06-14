@@ -9,3 +9,44 @@ types:
       surname: "surname"
       role: "role"
       department: "dept"
+      salary: "salary"
+  dokument_finansowy:
+    source: "main_db"
+    table: "financial_docs"
+    primary_key: "id"
+    attributes:
+      id: "id"
+      title: "title"
+      department: "dept"
+      classification: "class_level"
+      total_amount: "total_amount"
+  raport_projektowy:
+    source: "main_db"
+    table: "project_reports"
+    primary_key: "id"
+    attributes:
+      id: "id"
+      project_name: "proj_name"
+      department: "dept"
+      classification: "class_level"
+      is_active: "is_active"
+  faktura:
+    source: "main_db"
+    table: "invoices"
+    primary_key: "id"
+    attributes:
+      id: "id"
+      invoice_number: "inv_num"
+      department: "dept"
+      classification: "class_level"
+      contractor_id: "client_id"
+  kod_zrodlowy:
+    source: "main_db"
+    table: "source_codes"
+    primary_key: "id"
+    attributes:
+      id: "id"
+      repository: "repo_name"
+      department: "dept"
+      classification: "class_level"
+      required_level: "req_clearance"

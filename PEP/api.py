@@ -18,7 +18,7 @@ models.Base.metadata.create_all(bind=db.engine)
 
 async def lifespan(app: FastAPI):
     with db.SessionLocal() as session:
-        seed.seed_users(session)
+        seed.seed_all_data(session)
     yield
 
 logger = get_logger("PEP-SERVICE")

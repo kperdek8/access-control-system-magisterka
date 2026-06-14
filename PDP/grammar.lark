@@ -18,6 +18,7 @@ comparison: attribute op value | attribute op attribute
 // Atrybuty
 attribute: WORD "." WORD
 
+// Operatory
 op: EQUAL_OP | NOT_EQUAL_OP | GREATER_THAN_OR_EQUAL_OP | GREATER_THAN_OP | LESSER_THAN_OR_EQUAL_OP | LESSER_THAN_OP
 EQUAL_OP: "=="
 NOT_EQUAL_OP: "!="
@@ -35,6 +36,12 @@ key: WORD
 value: WORD | NUMBER | ESCAPED_STRING
 array: "[" [value ("," value)*] "]"
 WORD: /[a-zA-Z_][a-zA-Z0-9_]*/
+
+// Komentarz
+COMMENT: /#[^\n]*/
+
+// Nakaz ignorowania komentarzy przez parser
+%ignore COMMENT
 
 // Importy
 %import common.ESCAPED_STRING

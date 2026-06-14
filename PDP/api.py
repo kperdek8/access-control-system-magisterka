@@ -1,4 +1,5 @@
 import os
+import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -13,7 +14,7 @@ from delegations import add_delegation, revoke_delegation, get_delegations
 from common.schemas import AuthorizationRequest, AuthorizationResponse, Decision, Mode, AttributeResponse, \
     AttributeRequest, Behaviour, AddDelegationResponse, RevokeDelegationResponse, AddDelegationRequest, \
     RevokeDelegationRequest
-from common.logger import get_logger
+from common.logger import get_logger, log_evaluation_decision
 from common.settings import Settings
 from parser import load_and_parse_policies, PolicyStore
 from transformer import Rule, DelegationRule
@@ -88,8 +89,6 @@ def evaluate_delegation_request(request: AddDelegationRequest):
             elif category == "delegator" and attr_name not in attributes["delegator"]:
                 missing_attributes["delegator"].add(attr_name)
 
-    logger.debug(f"Missing attributes {missing_attributes}")
-
     if missing_attributes["resource"]:
         attributes["resource"].update(get_attributes(pip_url=PIP_URL,
                                                      id=attributes["resource"][resource_primary_key],
@@ -120,6 +119,20 @@ def evaluate_delegation_request(request: AddDelegationRequest):
 
 
 def evaluate_decision(subject_attributes: dict, resource_attributes: dict, request_context: dict):
+    step_times = {
+        "1_prepare_request": 0.0,
+        "2_fetch_pip_attrs": 0.0,
+        "3_evaluate_access_rules": 0.0,
+        "4_fetch_delegations": 0.0,
+        "5_fetch_delegators_attrs": 0.0,
+        "6_evaluate_delegation_rules": 0.0
+    }
+    decision_reason = "Brak reguł zezwalających"
+    final_decision = False  # Domyślnie zakaz
+
+    # Przygotowanie żądania z atrybutami
+    start_step1 = time.perf_counter()
+
     missing_attributes = {
         "subject": set(),
         "resource": set()
@@ -132,7 +145,10 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, reque
             elif category == "resource" and attr_name not in resource_attributes:
                 missing_attributes["resource"].add(attr_name)
 
-    logger.debug(f"Missing attributes {missing_attributes}")
+    step_times["1_prepare_request"] = time.perf_counter() - start_step1
+
+    # Otrzymanie atrybutów z PIP
+    start_step2 = time.perf_counter()
 
     if missing_attributes["subject"]:
         subject_attributes.update(get_attributes(pip_url=PIP_URL,
@@ -145,34 +161,60 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, reque
                                                   type=resource_attributes["type"],
                                                   attributes=missing_attributes["resource"]))
 
+    step_times["2_fetch_pip_attrs"] = time.perf_counter() - start_step2
+
+    # Ewaluacja reguł dostępowych
+    start_step3 = time.perf_counter()
+
     context = {
         "subject": subject_attributes,
         "resource": resource_attributes,
         "context": request_context
     }
 
-    final_decision = False  # Domyślnie zakaz
-
+    access_evaluated = False
     for policy in policies.rules:
         decision = policy.evaluate(context)
         if decision == "ALLOW" and behaviour == Behaviour.PERMIT_OVERRIDE:
-            return True
-        elif decision == "ALLOW" and behaviour == Behaviour.PERMIT_OVERRIDE:
             final_decision = True
+            decision_reason = f"Reguła ALLOW: {policy.conditions}"
+            access_evaluated = True
+            break
+        elif decision == "ALLOW":
+            final_decision = True
+            decision_reason = f"Reguła ALLOW: {policy.conditions}"
         elif decision == "DENY" and behaviour == Behaviour.DENY_OVERRIDE:
-            return False
+            final_decision = False
+            decision_reason = f"Reguła DENY: {policy.conditions}"
+            access_evaluated = True
+            break
+
+    step_times["3_evaluate_access_rules"] = time.perf_counter() - start_step3
+
+    # Jeśli podjęto ostateczną decyzję na etapie reguł dostępu (Permit/Deny Override), pomijamy delegacje
+    if access_evaluated:
+        log_evaluation_decision(logger, final_decision, decision_reason, step_times)
+        return final_decision
 
     applicable_delegation_rules = policies.find_delegation_by_delegatee(res_type=resource_attributes["type"],
                                                                         delegatee_type=subject_attributes["type"],
                                                                         action=request_context["action"])
     if not final_decision and applicable_delegation_rules:
+        # Pobranie dostępnych delegacji
+        start_step4 = time.perf_counter()
+
         delegations = get_delegations(pip_url=PIP_URL,
                                       subject_id=subject_attributes["id"],
                                       subject_type=subject_attributes["type"],
                                       resource_id=resource_attributes["id"],
                                       resource_type=resource_attributes["type"])
+        step_times["4_fetch_delegations"] = time.perf_counter() - start_step4
+
         if delegations:
-            logger.info(f"Found {len(delegations)} active delegations in PIP.")
+            # Pobranie atrybutów delegatorów
+            start_step5 = time.perf_counter()
+
+            logger.debug(f"Found {len(delegations)} active delegations in PIP.")
             missing_delegators_attrs = defaultdict(set)
             missing_delegation_subject_attrs = set()
             missing_delegation_resource_attrs = set()
@@ -245,7 +287,12 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, reque
                 extra_resource_data = fetched_batch_data.get(resource_attributes["type"], {}).get(str(resource_attributes["id"]), {})
                 resource_attributes.update(extra_resource_data)
 
+            step_times["5_fetch_delegators_attrs"] = time.perf_counter() - start_step5
+
             # 5. Ewaluacja reguł delegacji z kompletnym kontekstem
+            start_step6 = time.perf_counter()
+            delegation_approved = False
+
             for candidate in valid_delegation_candidates:
                 current_delegation = candidate["delegation"]
                 current_rules = candidate["rules"]
@@ -261,7 +308,6 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, reque
                     "context": request_context
                 }
 
-                delegation_approved = False
                 final_rule = None
                 for d_rule in current_rules:
                     try:
@@ -278,8 +324,11 @@ def evaluate_decision(subject_attributes: dict, resource_attributes: dict, reque
 
                 if delegation_approved:
                     final_decision = True
-                    logger.info(f"Access granted based on delegation: {current_delegation} fulfilling rule: {final_rule.rule}")
+                    logger.debug(f"Access granted based on delegation: {current_delegation} fulfilling rule: {final_rule.rule}")
+                    decision_reason = f"Zezwolenie na podstawie aktywnej delegacji (Reguła: {getattr(final_rule.rule, 'text', str(final_rule.rule))})"
                     break
+            step_times["6_evaluate_delegation_rules"] = time.perf_counter() - start_step6
+    log_evaluation_decision(logger, final_decision, decision_reason, step_times)
     return final_decision
 
 
@@ -293,10 +342,11 @@ def evaluate_constraints(subject_attributes: dict, resource_attributes: dict, co
             if category == "subject" and attr_name not in subject_attributes:
                 missing_attributes["subject"].add(attr_name)
 
-    logger.debug(f"Missing attributes {missing_attributes}")
-
     if missing_attributes["subject"]:
-        subject_attributes.update(get_attributes(subject_attributes["id"], subject_attributes["type"], missing_attributes["subject"]))
+        subject_attributes.update(get_attributes(pip_url=PIP_URL,
+                                                 id=subject_attributes["id"],
+                                                 type=subject_attributes["type"],
+                                                 attributes=missing_attributes["subject"]))
 
     context = {
         "subject": subject_attributes,
@@ -304,26 +354,43 @@ def evaluate_constraints(subject_attributes: dict, resource_attributes: dict, co
         "context": context
     }
 
+    all_applicable_constraints = []
+    any_allow = False
+
     for policy in policies.rules:
         action, constraints = policy.collect_constraints(context)
+
         if action == "ALLOW":
-            return Decision.ALLOW, constraints
+            any_allow = True
+            if constraints is None:
+                continue
+
+            if constraints == []:
+                return Decision.ALLOW, []
+
+            all_applicable_constraints.extend(constraints)
+
+    if any_allow and all_applicable_constraints:
+        return Decision.ALLOW, all_applicable_constraints
+
+    if any_allow:
+        return Decision.ALLOW, []
 
     return Decision.DENY, []
 
 
 @app.post("/authorize", response_model=AuthorizationResponse)
 def authorize(request: AuthorizationRequest) -> AuthorizationResponse:
-    logger.info(f"Received authorization request: {request}")
+    logger.debug(f"Received authorization request: {request}")
     context = {
         "action": request.action
     }
     if not request.mode or request.mode == Mode.DECISION:
         if evaluate_decision(request.subject, request.resource, context):
-            logger.info(f"Authorization decision: {Decision.ALLOW}")
+            logger.debug(f"Authorization decision: {Decision.ALLOW}")
             return AuthorizationResponse(decision=Decision.ALLOW)
         else:
-            logger.info(f"Authorization decision: {Decision.DENY}")
+            logger.debug(f"Authorization decision: {Decision.DENY}")
             return AuthorizationResponse(decision=Decision.DENY)
     else:
         decision, constraints = evaluate_constraints(request.subject, request.resource, context)
